@@ -184,27 +184,6 @@ void SGM37604A_set_backlight_reg_init(void)
 
 
 int sgm_last_level;
-static unsigned int apply_gamma(unsigned int level) {
-    unsigned int level_a;
-    
-    // 替换为你设备树中的真实参数
-    const unsigned int max_in = 255;   // qcom,mdss-brightness-max-level = <0xff>
-    const unsigned int max_out = 3767; // qcom,mdss-dsi-bl-max-level = <0xeb7>
-    const unsigned int min_out = 34;   // qcom,mdss-dsi-bl-min-level = <0x22>
-
-    if (level >= max_in) return max_out;
-    
-    // 采用 u64 防止乘法溢出
-    level_a = (unsigned int)(((u64)level * level * max_out) / ((u64)max_in * max_in));
-    
-    // 硬件安全下限钳位
-    if (level > 0 && level_a < min_out) {
-        level_a = min_out;
-    }
-    
-    return level_a;
-}
-
 int sgm37604a_set_backlight_level(unsigned int level)
 {
 	unsigned int level_a = 0;
@@ -222,15 +201,32 @@ int sgm37604a_set_backlight_level(unsigned int level)
 
 		is_suspend = 1;
 	} else {
+		/* --- 纯 32 位无溢出、无崩溃的 Gamma 2.0 映射 --- */
+		unsigned int lvl = level;
+		
+		// 硬件绝对上限钳位（原厂宏的限制）
+		if (lvl > 4095) {
+			lvl = 4095;
+		}
 
-		/* 调用参数正确的伽马映射函数 */
-		level_a = apply_gamma(level);
+		// 伽马 2.0 近似：输出 = 输入^2 / 4095
+		// 最大仅为 16,769,025，32 位 unsigned int 毫无压力
+		level_a = (lvl * lvl) / 4095;
+
+		// 硬件安全下限钳位（原厂宏设定的最小值是 16）
+		if (level_a < 16) {
+			level_a = 16;
+		}
+		/* -------------------------------------------------- */
 
 		if (is_suspend == 1) {
 			is_suspend = 0;
+
 			mdelay(10);
 			ret_code = down_interruptible(&SGM37604A_lock);
+
 			BACKLIGHT_LOG("[Brightness] level_a=%d\n", level_a);
+
 			up(&SGM37604A_lock);
 		}
 

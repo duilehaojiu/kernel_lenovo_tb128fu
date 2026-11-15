@@ -184,18 +184,24 @@ void SGM37604A_set_backlight_reg_init(void)
 
 
 int sgm_last_level;
-// 放在函数外面
 static unsigned int apply_gamma(unsigned int level) {
     unsigned int level_a;
-    // 根据实际最大级别修改 (2047, 4095, 或者 255)
-    const unsigned int max_in = 2047; 
-    // 根据 SGM37604A 寄存器实际支持位数修改
-    const unsigned int max_out = 4095; 
+    
+    // 替换为你设备树中的真实参数
+    const unsigned int max_in = 255;   // qcom,mdss-brightness-max-level = <0xff>
+    const unsigned int max_out = 3767; // qcom,mdss-dsi-bl-max-level = <0xeb7>
+    const unsigned int min_out = 34;   // qcom,mdss-dsi-bl-min-level = <0x22>
 
     if (level >= max_in) return max_out;
     
     // 采用 u64 防止乘法溢出
     level_a = (unsigned int)(((u64)level * level * max_out) / ((u64)max_in * max_in));
+    
+    // 硬件安全下限钳位
+    if (level > 0 && level_a < min_out) {
+        level_a = min_out;
+    }
+    
     return level_a;
 }
 
@@ -217,11 +223,8 @@ int sgm37604a_set_backlight_level(unsigned int level)
 		is_suspend = 1;
 	} else {
 
-		/* 替换掉原本的线性缩放 */
+		/* 调用参数正确的伽马映射函数 */
 		level_a = apply_gamma(level);
-        
-        /* 如果想限制最低亮度不要过暗，可以在这里加个下限钳位 */
-        // if (level_a > 0 && level_a < 20) level_a = 20;
 
 		if (is_suspend == 1) {
 			is_suspend = 0;
@@ -242,7 +245,6 @@ int sgm37604a_set_backlight_level(unsigned int level)
 
 	return 0;
 }
-
 
 #if 0
 static unsigned int GPIO_LCM_BL_ENABLE;

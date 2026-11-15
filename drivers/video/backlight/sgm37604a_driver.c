@@ -184,6 +184,21 @@ void SGM37604A_set_backlight_reg_init(void)
 
 
 int sgm_last_level;
+// 放在函数外面
+static unsigned int apply_gamma(unsigned int level) {
+    unsigned int level_a;
+    // 根据实际最大级别修改 (2047, 4095, 或者 255)
+    const unsigned int max_in = 2047; 
+    // 根据 SGM37604A 寄存器实际支持位数修改
+    const unsigned int max_out = 4095; 
+
+    if (level >= max_in) return max_out;
+    
+    // 采用 u64 防止乘法溢出
+    level_a = (unsigned int)(((u64)level * level * max_out) / ((u64)max_in * max_in));
+    return level_a;
+}
+
 int sgm37604a_set_backlight_level(unsigned int level)
 {
 	unsigned int level_a = 0;
@@ -202,16 +217,17 @@ int sgm37604a_set_backlight_level(unsigned int level)
 		is_suspend = 1;
 	} else {
 
-		level_a = MIN_MAX_SCALE(level);
+		/* 替换掉原本的线性缩放 */
+		level_a = apply_gamma(level);
+        
+        /* 如果想限制最低亮度不要过暗，可以在这里加个下限钳位 */
+        // if (level_a > 0 && level_a < 20) level_a = 20;
 
 		if (is_suspend == 1) {
 			is_suspend = 0;
-
 			mdelay(10);
 			ret_code = down_interruptible(&SGM37604A_lock);
-
 			BACKLIGHT_LOG("[Brightness] level_a=%d\n", level_a);
-
 			up(&SGM37604A_lock);
 		}
 
@@ -222,7 +238,6 @@ int sgm37604a_set_backlight_level(unsigned int level)
 			BACKLIGHT_LOG("[Brightness] setting fail ----------\n");
 
 		up(&SGM37604A_lock);
-
 	}
 
 	return 0;
